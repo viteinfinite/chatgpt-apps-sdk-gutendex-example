@@ -1,2 +1,6 @@
 packages:
-  - pizzaz_server_node
+  - gutendex_server_node
+
+onlyBuiltDependencies:
+  - '@tailwindcss/oxide'
+  - esbuild

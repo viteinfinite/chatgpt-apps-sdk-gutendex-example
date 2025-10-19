@@ -25,8 +25,9 @@ import {
   type Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
+import { fetch } from "undici";
 
-type PizzazWidget = {
+type WidgetDef = {
   id: string;
   title: string;
   templateUri: string;
@@ -74,7 +75,7 @@ function readWidgetHtml(componentName: string): string {
   return htmlContents;
 }
 
-function widgetMeta(widget: PizzazWidget) {
+function widgetMeta(widget: WidgetDef) {
   return {
     "openai/outputTemplate": widget.templateUri,
     "openai/toolInvocation/invoking": widget.invoking,
@@ -84,76 +85,80 @@ function widgetMeta(widget: PizzazWidget) {
   } as const;
 }
 
-const widgets: PizzazWidget[] = [
+const widgets: WidgetDef[] = [
   {
-    id: "pizza-map",
-    title: "Show Pizza Map",
-    templateUri: "ui://widget/pizza-map.html",
-    invoking: "Hand-tossing a map",
-    invoked: "Served a fresh map",
-    html: readWidgetHtml("pizzaz"),
-    responseText: "Rendered a pizza map!",
-  },
-  {
-    id: "pizza-carousel",
-    title: "Show Pizza Carousel",
-    templateUri: "ui://widget/pizza-carousel.html",
-    invoking: "Carousel some spots",
-    invoked: "Served a fresh carousel",
-    html: readWidgetHtml("pizzaz-carousel"),
-    responseText: "Rendered a pizza carousel!",
-  },
-  {
-    id: "pizza-albums",
-    title: "Show Pizza Album",
-    templateUri: "ui://widget/pizza-albums.html",
-    invoking: "Hand-tossing an album",
-    invoked: "Served a fresh album",
-    html: readWidgetHtml("pizzaz-albums"),
-    responseText: "Rendered a pizza album!",
-  },
-  {
-    id: "pizza-list",
-    title: "Show Pizza List",
-    templateUri: "ui://widget/pizza-list.html",
-    invoking: "Hand-tossing a list",
-    invoked: "Served a fresh list",
-    html: readWidgetHtml("pizzaz-list"),
-    responseText: "Rendered a pizza list!",
+    id: "gutendex-search",
+    title: "Search Project Gutenberg",
+    templateUri: "ui://widget/gutendex-search.html",
+    invoking: "Searching Project Gutenberg",
+    invoked: "Showing search results",
+    html: readWidgetHtml("gutendex-search"),
+    responseText: "Rendered Project Gutenberg search results.",
   },
 ];
 
-const widgetsById = new Map<string, PizzazWidget>();
-const widgetsByUri = new Map<string, PizzazWidget>();
-
-widgets.forEach((widget) => {
-  widgetsById.set(widget.id, widget);
-  widgetsByUri.set(widget.templateUri, widget);
+const widgetsById = new Map<string, WidgetDef>();
+const widgetsByUri = new Map<string, WidgetDef>();
+widgets.forEach((w) => {
+  widgetsById.set(w.id, w);
+  widgetsByUri.set(w.templateUri, w);
 });
 
-const toolInputSchema = {
+// Tool: gutendex.books.search
+const searchInputSchema = {
   type: "object",
   properties: {
-    pizzaTopping: {
+    search: { type: "string", description: "Full-text search across titles and authors." },
+    languages: {
       type: "string",
-      description: "Topping to mention when rendering the widget.",
+      description: "Comma-separated 2-letter language codes (e.g. en,fr)",
+    },
+    author_year_start: { type: "integer", description: "Author alive on/after this year." },
+    author_year_end: { type: "integer", description: "Author alive on/before this year." },
+    mime_type: { type: "string", description: "MIME type prefix to match (e.g. text/html)." },
+    topic: { type: "string", description: "Substring to match bookshelf or subject." },
+    ids: { type: "string", description: "Comma-separated Gutenberg IDs to filter." },
+    copyright: {
+      type: "string",
+      description: "copyright filter: true,false,null or comma-combo",
+    },
+    sort: {
+      type: "string",
+      enum: ["popular", "ascending", "descending"],
+      description: "Sort order. Defaults to popular.",
+    },
+    page: { type: "integer", description: "Page number (if supported)." },
+    pageUrl: {
+      type: "string",
+      description: "Direct Gutendex page URL (overrides other params).",
     },
   },
-  required: ["pizzaTopping"],
   additionalProperties: false,
 } as const;
 
-const toolInputParser = z.object({
-  pizzaTopping: z.string(),
+const searchInputParser = z.object({
+  search: z.string().trim().optional(),
+  languages: z.string().trim().optional(),
+  author_year_start: z.number().int().optional(),
+  author_year_end: z.number().int().optional(),
+  mime_type: z.string().trim().optional(),
+  topic: z.string().trim().optional(),
+  ids: z.string().trim().optional(),
+  copyright: z.string().trim().optional(),
+  sort: z.enum(["popular", "ascending", "descending"]).optional(),
+  page: z.number().int().optional(),
+  pageUrl: z.string().url().optional(),
 });
 
-const tools: Tool[] = widgets.map((widget) => ({
-  name: widget.id,
-  description: widget.title,
-  inputSchema: toolInputSchema,
-  title: widget.title,
-  _meta: widgetMeta(widget),
-}));
+const tools: Tool[] = [
+  {
+    name: "gutendex.books.search",
+    description: "Search Project Gutenberg via Gutendex API and show results.",
+    title: "Search books",
+    inputSchema: searchInputSchema,
+    _meta: widgetMeta(widgetsById.get("gutendex-search")!),
+  },
+];
 
 const resources: Resource[] = widgets.map((widget) => ({
   uri: widget.templateUri,
@@ -171,10 +176,41 @@ const resourceTemplates: ResourceTemplate[] = widgets.map((widget) => ({
   _meta: widgetMeta(widget),
 }));
 
-function createPizzazServer(): Server {
+async function gutendexFetch(args: z.infer<typeof searchInputParser>) {
+  let url: string;
+  if (args.pageUrl) {
+    url = args.pageUrl;
+  } else {
+    const u = new URL("https://gutendex.com/books");
+    const set = (k: string, v?: string | number) => {
+      if (v === undefined || v === null || v === "") return;
+      u.searchParams.set(k, String(v));
+    };
+    set("search", args.search);
+    set("languages", args.languages);
+    set("author_year_start", args.author_year_start);
+    set("author_year_end", args.author_year_end);
+    set("mime_type", args.mime_type);
+    set("topic", args.topic);
+    set("ids", args.ids);
+    set("copyright", args.copyright);
+    set("sort", args.sort);
+    if (typeof args.page === "number") set("page", args.page);
+    url = u.toString();
+  }
+
+  const resp = await fetch(url, { method: "GET" });
+  if (!resp.ok) {
+    throw new Error(`Gutendex request failed: ${resp.status} ${resp.statusText}`);
+  }
+  const data = (await resp.json()) as any;
+  return data;
+}
+
+function createGutendexServer(): Server {
   const server = new Server(
     {
-      name: "pizzaz-node",
+      name: "gutendex-node",
       version: "0.1.0",
     },
     {
@@ -196,11 +232,9 @@ function createPizzazServer(): Server {
     ReadResourceRequestSchema,
     async (request: ReadResourceRequest) => {
       const widget = widgetsByUri.get(request.params.uri);
-
       if (!widget) {
         throw new Error(`Unknown resource: ${request.params.uri}`);
       }
-
       return {
         contents: [
           {
@@ -231,23 +265,46 @@ function createPizzazServer(): Server {
   server.setRequestHandler(
     CallToolRequestSchema,
     async (request: CallToolRequest) => {
-      const widget = widgetsById.get(request.params.name);
-
-      if (!widget) {
-        throw new Error(`Unknown tool: ${request.params.name}`);
+      const name = request.params.name;
+      if (name !== "gutendex.books.search") {
+        throw new Error(`Unknown tool: ${name}`);
       }
 
-      const args = toolInputParser.parse(request.params.arguments ?? {});
+      const args = searchInputParser.parse(request.params.arguments ?? {});
+      const widget = widgetsById.get("gutendex-search")!;
+
+      const data = await gutendexFetch(args);
+      const results = Array.isArray(data?.results) ? data.results : [];
+      const mapped = results.map((b: any) => ({
+        id: b.id,
+        title: b.title,
+        authors: Array.isArray(b.authors)
+          ? b.authors.map((a: any) => ({
+              name: a.name,
+              birth_year: a.birth_year ?? null,
+              death_year: a.death_year ?? null,
+            }))
+          : [],
+        languages: Array.isArray(b.languages) ? b.languages : [],
+        download_count: b.download_count ?? 0,
+        formats: b.formats ?? {},
+      }));
+
+      const responseText = `Found ${data?.count ?? mapped.length} books`;
 
       return {
         content: [
           {
             type: "text",
-            text: widget.responseText,
+            text: responseText,
           },
         ],
         structuredContent: {
-          pizzaTopping: args.pizzaTopping,
+          query: args,
+          count: data?.count ?? mapped.length,
+          next: data?.next ?? null,
+          previous: data?.previous ?? null,
+          results: mapped,
         },
         _meta: widgetMeta(widget),
       };
@@ -263,13 +320,12 @@ type SessionRecord = {
 };
 
 const sessions = new Map<string, SessionRecord>();
-
 const ssePath = "/mcp";
 const postPath = "/mcp/messages";
 
 async function handleSseRequest(res: ServerResponse) {
   res.setHeader("Access-Control-Allow-Origin", "*");
-  const server = createPizzazServer();
+  const server = createGutendexServer();
   const transport = new SSEServerTransport(postPath, res);
   const sessionId = transport.sessionId;
 
@@ -310,7 +366,6 @@ async function handlePostMessage(
   }
 
   const session = sessions.get(sessionId);
-
   if (!session) {
     res.writeHead(404).end("Unknown session");
     return;
@@ -371,9 +426,10 @@ httpServer.on("clientError", (err: Error, socket) => {
 });
 
 httpServer.listen(port, () => {
-  console.log(`Pizzaz MCP server listening on http://localhost:${port}`);
+  console.log(`Gutendex MCP server listening on http://localhost:${port}`);
   console.log(`  SSE stream: GET http://localhost:${port}${ssePath}`);
   console.log(
     `  Message post endpoint: POST http://localhost:${port}${postPath}?sessionId=...`
   );
 });
+
