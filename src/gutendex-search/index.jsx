@@ -1,4 +1,4 @@
-import React, { useMemo, useEffect, useState, useCallback } from "react";
+import React, { useMemo, useEffect, useState, useCallback, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import { useWidgetProps } from "../use-widget-props";
 
@@ -31,7 +31,11 @@ function BookItem({ book, onSummary }) {
   return (
     <li
       className="py-3 px-3 -mx-2 rounded-xl hover:bg-black/5 flex items-start gap-3 cursor-pointer"
-      onClick={() => onSummary?.(book, htmlUrl)}
+      onClick={(e) => {
+        e.preventDefault();
+        onSummary?.(book, htmlUrl);
+      }}
+      onMouseDown={(e) => e.preventDefault()}
       title="Click for a short summary"
     >
       <div className="flex-1 min-w-0">
@@ -44,19 +48,17 @@ function BookItem({ book, onSummary }) {
         </div>
       </div>
       <div className="shrink-0">
-        {htmlUrl ? (
-          <a
-            className="inline-flex items-center rounded-full bg-black text-white px-3 py-1 text-xs hover:opacity-90"
-            href={htmlUrl}
-            target="_blank"
-            rel="noreferrer noopener"
-            onClick={(e) => e.stopPropagation()}
-          >
-            Open
-          </a>
-        ) : (
-          <span className="text-xs text-black/50">No preview</span>
-        )}
+        <button
+          type="button"
+          className="cursor-pointer inline-flex items-center rounded-full bg-black text-white px-3 py-1 text-xs hover:opacity-90"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onSummary?.(book, htmlUrl);
+          }}
+        >
+          Read More
+        </button>
       </div>
     </li>
   );
@@ -71,8 +73,11 @@ function App() {
     previous: initial?.previous ?? null,
     query: initial?.query ?? {},
     loading: false,
+    loadingWhich: null,
     error: null,
   }));
+
+  const inFlight = useRef(null);
 
   // Keep state in sync if the widget gets fresh props (e.g., first render)
   useEffect(() => {
@@ -86,11 +91,20 @@ function App() {
     }));
   }, [initial?.results, initial?.count, initial?.next, initial?.previous, initial?.query]);
 
-  const fetchPage = useCallback(async (url) => {
+  const fetchPage = useCallback(async (url, which) => {
     if (!url) return;
     try {
-      setState((s) => ({ ...s, loading: true, error: null }));
-      const res = await fetch(url);
+      // Abort any in-flight request before starting a new one
+      if (inFlight.current) {
+        inFlight.current.abort();
+        inFlight.current = null;
+      }
+
+      const controller = new AbortController();
+      inFlight.current = controller;
+
+      setState((s) => ({ ...s, loading: true, loadingWhich: which ?? null, error: null }));
+      const res = await fetch(url, { signal: controller.signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       const mapped = Array.isArray(data?.results)
@@ -116,17 +130,20 @@ function App() {
         next: data?.next ?? null,
         previous: data?.previous ?? null,
         loading: false,
+        loadingWhich: null,
         error: null,
       }));
     } catch (e) {
-      setState((s) => ({ ...s, loading: false, error: String(e) }));
+      if (e?.name === "AbortError") return; // ignore aborts
+      setState((s) => ({ ...s, loading: false, loadingWhich: null, error: String(e) }));
     }
   }, []);
 
   const onNavigate = (which) => {
+    if (state.loading) return;
     const target = which === "next" ? state.next : state.previous;
     if (!target) return;
-    fetchPage(target);
+    fetchPage(target, which);
   };
 
   const onSummary = useCallback((book, htmlUrl) => {
@@ -134,14 +151,17 @@ function App() {
     const authorList = (book?.authors || []).map((a) => a.name).filter(Boolean);
     const authorStr = authorList.length ? ` by ${authorList.join(", ")}` : "";
     const urlPart = htmlUrl ? ` You can reference the text at: ${htmlUrl}` : "";
-    const prompt = `Provide a short 3-4 sentence summary of the Project Gutenberg book "${title}"${authorStr}.${urlPart}`;
+    const prompt = `Provide a short 3-4 sentence summary of the Project Gutenberg book "${title}"${authorStr}.${urlPart}. After the summary, provide a beautifully formatted link to the book on Project Gutenberg, prefixed with the emoji 🔗.`;
     if (window?.openai?.sendFollowUpMessage) {
       window.openai.sendFollowUpMessage({ prompt }).catch(() => {});
     }
   }, []);
 
   return (
-    <div className="bg-white antialiased w-full text-black px-4 pb-2 border border-black/10 rounded-2xl sm:rounded-3xl overflow-hidden">
+    <div
+      className="bg-white antialiased w-full text-black px-4 pb-2 border border-black/10 rounded-2xl sm:rounded-3xl overflow-hidden"
+      aria-busy={state.loading ? "true" : "false"}
+    >
       <div className="max-w-full">
         <div className="flex items-baseline justify-between border-b border-black/5 py-3">
           <div>
@@ -150,21 +170,26 @@ function App() {
               {state.count} result{state.count === 1 ? "" : "s"}
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
             <button
               className="rounded-full bg-black text-white text-xs px-3 py-1 disabled:opacity-40"
               disabled={!state.previous || state.loading}
               onClick={() => onNavigate("previous")}
             >
-              Previous
+              {state.loading && state.loadingWhich === "previous" ? "Loading…" : "Previous"}
             </button>
             <button
               className="rounded-full bg-black text-white text-xs px-3 py-1 disabled:opacity-40"
               disabled={!state.next || state.loading}
               onClick={() => onNavigate("next")}
             >
-              Next
+              {state.loading && state.loadingWhich === "next" ? "Loading…" : "Next"}
             </button>
+            {state.loading && (
+              <span className="text-[11px] text-black/60" aria-live="polite">
+                Fetching {state.loadingWhich || "page"}…
+              </span>
+            )}
           </div>
         </div>
 
