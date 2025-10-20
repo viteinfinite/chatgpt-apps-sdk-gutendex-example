@@ -65,14 +65,14 @@ function BookItem({ book, onSummary }) {
 }
 
 function App() {
-  const initial = useWidgetProps(() => ({ results: [], count: 0 }));
+  const initial = useWidgetProps();
   const [state, setState] = useState(() => ({
     results: initial?.results ?? [],
     count: initial?.count ?? 0,
     next: initial?.next ?? null,
     previous: initial?.previous ?? null,
     query: initial?.query ?? {},
-    loading: false,
+    loading: !initial || typeof initial.results === "undefined",
     loadingWhich: null,
     error: null,
   }));
@@ -81,6 +81,7 @@ function App() {
 
   // Keep state in sync if the widget gets fresh props (e.g., first render)
   useEffect(() => {
+    if (!initial || typeof initial.results === "undefined") return;
     setState((s) => ({
       ...s,
       results: initial?.results ?? [],
@@ -88,6 +89,9 @@ function App() {
       next: initial?.next ?? null,
       previous: initial?.previous ?? null,
       query: initial?.query ?? {},
+      loading: false,
+      loadingWhich: null,
+      error: null,
     }));
   }, [initial?.results, initial?.count, initial?.next, initial?.previous, initial?.query]);
 
