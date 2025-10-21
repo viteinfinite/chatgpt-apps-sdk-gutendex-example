@@ -45,10 +45,8 @@ your-app/
 ├── src/use-widget-props.ts  # OpenAI global state hook
 ├── src/use-openai-global.ts # OpenAI global context
 ├── assets/                  # Generated build artifacts
-│   ├── your-widget.html     # HTML entry point
-│   ├── your-widget.js       # Built JavaScript
-│   ├── your-widget.css      # Built CSS
-│   └── your-widget-[hash].* # Versioned assets
+│   ├── your-widget.html           # Inlined single-file HTML (recommended)
+│   └── your-widget-[hash].html    # Versioned single-file HTML (cache-busted)
 └── your_server_node/        # MCP server
     ├── package.json         # Server dependencies
     ├── tsconfig.json        # Server TypeScript config
@@ -959,6 +957,26 @@ pnpm install
 ```bash
 pnpm run build
 ```
+
+### Bundling Strategy: Single‑File HTML (Recommended)
+
+- The build script (`build-all.mts`) compiles your widget, then inlines the emitted CSS and JS into a single HTML file per widget.
+- It writes both:
+  - an unversioned alias: `assets/your-widget.html`
+  - a content‑hashed file: `assets/your-widget-<hash>.html` (hash derives from final HTML)
+- Rationale:
+  - ChatGPT’s sandbox aggressively caches and strictly validates MIME types; inline HTML avoids additional network requests for JS/CSS and eliminates CORS/MIME pitfalls.
+  - The hashed filename guarantees template cache‑busting when content changes.
+
+Server integration:
+- On startup, the server selects the latest hashed HTML and advertises a versioned widget resource URI (for example `ui://widget/your-widget-<hash>.html`), falling back to `ui://widget/your-widget.html` when needed.
+- Code references:
+  - Build: build-all.mts (inlines CSS/JS and emits hashed HTML)
+  - Server (read + resolve): gutendex_server_node/src/server.ts:67, gutendex_server_node/src/server.ts:101
+  - Widget registration: gutendex_server_node/src/server.ts:115
+
+Alternative (legacy) multi‑file mode:
+- If you keep separate JS/CSS, ensure a stable `BASE_URL` and serve assets with correct `Content-Type`; however, prefer the single‑file approach for reliability in ChatGPT.
 
 ### 3. Start Development Server
 

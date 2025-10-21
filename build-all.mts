@@ -131,55 +131,24 @@ for (const file of entries) {
   console.log(`Built ${name}`);
 }
 
-const outputs = fs
-  .readdirSync("assets")
-  .filter((f) => f.endsWith(".js") || f.endsWith(".css"))
-  .map((f) => path.join("assets", f))
-  .filter((p) => fs.existsSync(p));
-
-const h = crypto
-  .createHash("sha256")
-  .update(pkg.version, "utf8")
-  .digest("hex")
-  .slice(0, 4);
-
-console.group("Hashing outputs");
-for (const out of outputs) {
-  const dir = path.dirname(out);
-  const ext = path.extname(out);
-  const base = path.basename(out, ext);
-  const newName = path.join(dir, `${base}-${h}${ext}`);
-
-  fs.renameSync(out, newName);
-  console.log(`${out} -> ${newName}`);
-}
-console.groupEnd();
-
-console.log("new hash: ", h);
-
-const defaultBaseUrl = "http://localhost:4444";
-const baseUrlCandidate = process.env.BASE_URL?.trim() ?? "";
-const baseUrlRaw = baseUrlCandidate.length > 0 ? baseUrlCandidate : defaultBaseUrl;
-const normalizedBaseUrl = baseUrlRaw.replace(/\/+$/, "") || defaultBaseUrl;
-console.log(`Using BASE_URL ${normalizedBaseUrl} for generated HTML`);
-
+// Inline CSS and JS into a single hashed HTML per widget for sandbox-friendly delivery
 for (const name of builtNames) {
-  const dir = outDir;
-  const hashedHtmlPath = path.join(dir, `${name}-${h}.html`);
-  const liveHtmlPath = path.join(dir, `${name}.html`);
-  const html = `<!doctype html>
-<html>
-<head>
-  <script type="module" src="${normalizedBaseUrl}/${name}.js"></script>
-  <link rel="stylesheet" href="${normalizedBaseUrl}/${name}.css">
-</head>
-<body>
-  <div id="${name}-root"></div>
-</body>
-</html>
-`;
+  const jsPath = path.join(outDir, `${name}.js`);
+  const cssPath = path.join(outDir, `${name}.css`);
+
+  const js = fs.existsSync(jsPath) ? fs.readFileSync(jsPath, "utf8") : "";
+  const css = fs.existsSync(cssPath) ? fs.readFileSync(cssPath, "utf8") : "";
+
+  const html = `<!doctype html>\n<html>\n<head>\n  <style>${css}</style>\n</head>\n<body>\n  <div id="${name}-root"></div>\n  <script type="module">${js}</script>\n</body>\n</html>\n`;
+
+  // Content-based hash to bust caches when code changes
+  const h = crypto.createHash("sha256").update(html, "utf8").digest("hex").slice(0, 8);
+  const hashedHtmlPath = path.join(outDir, `${name}-${h}.html`);
+  const liveHtmlPath = path.join(outDir, `${name}.html`);
+
   fs.writeFileSync(hashedHtmlPath, html, { encoding: "utf8" });
   fs.writeFileSync(liveHtmlPath, html, { encoding: "utf8" });
-  console.log(`${hashedHtmlPath} (generated live HTML)`);
-  console.log(`${liveHtmlPath} (generated live HTML)`);
+  console.log(`Generated single-file widget:`);
+  console.log(`  ${hashedHtmlPath}`);
+  console.log(`  ${liveHtmlPath}`);
 }

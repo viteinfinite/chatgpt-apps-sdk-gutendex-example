@@ -22,6 +22,27 @@ The server uses Server‑Sent Events (SSE), compatible with the MCP Inspector an
 - SSE stream: `GET /mcp`
 - Message post endpoint: `POST /mcp/messages?sessionId=...`
 
+
+## Versioning and cache busting
+
+- The server registers the widget with a versioned resource URI (for example `ui://widget/gutendex-search-2d2b.html`) when a hashed HTML file exists in `assets/`. This prevents stale templates due to ChatGPT caching.
+- The build script creates hashed JS/CSS/HTML files. When you bump the app version and rebuild, a new hash is used and a new resource URI is advertised automatically.
+- If no hashed file exists, the server falls back to `ui://widget/gutendex-search.html`.
+
+## Debugging and caching
+
+- Default logs: the server logs when it receives MCP requests, HTTP requests, SSE connect/close, tool calls start/complete, and Gutendex fetches, including response summaries (count, results length, next/previous).
+
+- Debug logging: set `DEBUG=1` (or `DEBUG=true`) to also print verbose details like full Gutendex JSON bodies (truncated) and extra diagnostics.
+
+  Example:
+
+  ```bash
+  DEBUG=1 pnpm start
+  ```
+
+- File cache: Gutendex responses are cached on disk using a simple FIFO policy with a capacity of 10 distinct URLs. Cache files are stored under `.cache/gutendex/` at the repo root and are keyed by a hash of the request URL. On cache miss the server fetches from Gutendex, writes the response to disk, and evicts the oldest entry if over capacity. Cache hits return the stored JSON without a network request.
+
 ## Tool: `gutendex.books.search`
 
 Search Project Gutenberg and return results with pagination metadata. Supported arguments:
@@ -38,4 +59,3 @@ Search Project Gutenberg and return results with pagination metadata. Supported 
 - `pageUrl` – Direct Gutendex page URL (for next/previous)
 
 Each response includes plain text, structured JSON, and `_meta.openai/outputTemplate` linking to the `gutendex-search` widget.
-
