@@ -40,8 +40,7 @@ type WidgetDef = {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(__dirname, "..", "..");
 const ASSETS_DIR = path.resolve(ROOT_DIR, "assets");
-const CACHE_DIR = path.resolve(ROOT_DIR, ".cache", "gutendex");
-const CACHE_INDEX_FILE = path.join(CACHE_DIR, "index.json");
+const GUTENDEX_CACHE_DIR = path.resolve(ROOT_DIR, ".cache", "gutendex");
 const DEBUG = String(process.env.DEBUG ?? "").toLowerCase() === "1" ||
   String(process.env.DEBUG ?? "").toLowerCase() === "true";
 
@@ -209,6 +208,10 @@ const resourceTemplates: ResourceTemplate[] = widgets.map((widget) => ({
   _meta: widgetMeta(widget),
 }));
 
+// File-based FIFO cache extracted into its own module
+import { FileFifoCache } from "./cache.js";
+const gutendexCache = new FileFifoCache(GUTENDEX_CACHE_DIR, 10);
+
 async function gutendexFetch(args: z.infer<typeof searchInputParser>) {
   let url: string;
   if (args.pageUrl) {
@@ -233,6 +236,13 @@ async function gutendexFetch(args: z.infer<typeof searchInputParser>) {
   }
   info("Gutendex request", { url });
 
+  // Try cache first (simple FIFO, not LRU)
+  const cached = await gutendexCache.read(url);
+  if (cached) {
+    info("Gutendex cache hit", { url });
+    return cached;
+  }
+
   const t0 = Date.now();
   const resp = await fetch(url, { method: "GET" });
   const dt = Date.now() - t0;
@@ -241,6 +251,28 @@ async function gutendexFetch(args: z.infer<typeof searchInputParser>) {
     throw new Error(`Gutendex request failed: ${resp.status} ${resp.statusText}`);
   }
   const data = (await resp.json()) as any;
+  try {
+    const summary = {
+      count: data?.count ?? (Array.isArray(data?.results) ? data.results.length : undefined),
+      results: Array.isArray(data?.results) ? data.results.length : undefined,
+      next: Boolean(data?.next),
+      previous: Boolean(data?.previous),
+    };
+    info("Gutendex response summary", summary);
+    if (DEBUG) {
+      const body = (() => {
+        try {
+          return JSON.stringify(data);
+        } catch {
+          return String(data);
+        }
+      })();
+      debug("Gutendex response body", truncate(body, 4000));
+    }
+  } catch (e) {
+    debug("error summarizing gutendex response", (e as Error)?.message);
+  }
+  await gutendexCache.write(url, data);
   return data;
 }
 
@@ -509,6 +541,6 @@ httpServer.listen(port, () => {
   );
   if (DEBUG) {
     console.log(`Debug logging enabled (DEBUG=${process.env.DEBUG})`);
-    console.log(`Cache dir: ${CACHE_DIR}`);
+    console.log(`Cache dir: ${GUTENDEX_CACHE_DIR}`);
   }
 });
