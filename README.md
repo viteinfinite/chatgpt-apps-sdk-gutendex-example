@@ -4,6 +4,8 @@
 
 This repository provides a ChatGPT connector that lets you search and consult books from Project Gutenberg using the public [Gutendex](https://gutendex.com) API. It uses the OpenAI Apps SDK conventions and the Model Context Protocol (MCP) to expose a search tool that returns a rich widget rendered inline in the chat.
 
+> 📚 **Want to build your own ChatGPT app?** Check out our comprehensive [ChatGPT Apps Development Guide](CHATGPT-APPS-DEVELOPMENT-GUIDE.md) to ~~learn~~ _help your agent know_ how to create custom ChatGPT applications from scratch!
+
 ## How it works
 
 - The MCP server exposes a single tool: `gutendex.books.search`.
@@ -74,6 +76,14 @@ Set `BASE_URL` at build time to the public origin where `assets/` is served:
 ```
 BASE_URL=https://your-public-assets-origin pnpm run build
 ```
+
+## Additional Resources
+
+### Development Guide
+- **[ChatGPT Apps Development Guide](CHATGPT-APPS-DEVELOPMENT-GUIDE.md)** - A comprehensive guide to creating your own simple ChatGPT app from scratch
+
+### Documentation
+- **Full Documentation** - Complete technical documentation and API reference available in markdown format in the [ChatGPT Apps SDK Markdown Documentation](https://github.com/viteinfinite/chatgpt-apps-sdk-markdown-docs) repository
 
 ## License
 
