@@ -275,20 +275,29 @@ function createGutendexServer(): Server {
 
       const data = await gutendexFetch(args);
       const results = Array.isArray(data?.results) ? data.results : [];
-      const mapped = results.map((b: any) => ({
-        id: b.id,
-        title: b.title,
-        authors: Array.isArray(b.authors)
-          ? b.authors.map((a: any) => ({
-              name: a.name,
-              birth_year: a.birth_year ?? null,
-              death_year: a.death_year ?? null,
-            }))
-          : [],
-        languages: Array.isArray(b.languages) ? b.languages : [],
-        download_count: b.download_count ?? 0,
-        formats: b.formats ?? {},
-      }));
+      const mapped = results.map((b: any) => {
+        const formats = b.formats ?? {};
+        const cover_url = typeof formats["image/jpeg"] === "string" ? formats["image/jpeg"] : null;
+        return {
+          id: b.id,
+          title: b.title,
+          authors: Array.isArray(b.authors)
+            ? b.authors.map((a: any) => ({
+                name: a.name,
+                birth_year: a.birth_year ?? null,
+                death_year: a.death_year ?? null,
+              }))
+            : [],
+          languages: Array.isArray(b.languages) ? b.languages : [],
+          download_count: b.download_count ?? 0,
+          media_type: b.media_type ?? null,
+          summaries: Array.isArray(b.summaries) ? b.summaries : [],
+          subjects: Array.isArray(b.subjects) ? b.subjects : [],
+          bookshelves: Array.isArray(b.bookshelves) ? b.bookshelves : [],
+          cover_url,
+          formats,
+        };
+      });
 
       const responseText = `Found ${data?.count ?? mapped.length} books`;
 
@@ -432,4 +441,3 @@ httpServer.listen(port, () => {
     `  Message post endpoint: POST http://localhost:${port}${postPath}?sessionId=...`
   );
 });
-
