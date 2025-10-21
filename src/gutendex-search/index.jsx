@@ -82,8 +82,17 @@ function BookItem({ book, onSummary, onCopyLink }) {
         <div className="text-xs text-black/50 mt-0.5">
           Languages: {langs || "n/a"} • Downloads: {downloads}
         </div>
-        <Chips items={book?.subjects || []} />
-        <Chips items={book?.bookshelves || []} />
+        {(() => {
+          const subjects = Array.isArray(book?.subjects) ? book.subjects : [];
+          const shelves = Array.isArray(book?.bookshelves) ? book.bookshelves : [];
+          const combined = [...subjects, ...shelves].filter(Boolean);
+          const unique = [];
+          for (const t of combined) {
+            if (!unique.includes(t)) unique.push(t);
+          }
+          const top3 = unique.slice(0, 3);
+          return <Chips items={top3} max={3} />;
+        })()}
       </div>
       <div className="shrink-0">
         <div className="flex gap-2">
