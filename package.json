@@ -10,7 +10,8 @@
     "tsc": "tsc -b",
     "tsc:app": "tsc -p tsconfig.app.json",
     "tsc:node": "tsc -p tsconfig.node.json",
-    "dev:host": "vite --config vite.host.config.mts"
+    "dev:host": "vite --config vite.host.config.mts",
+    "ngrok:start": "ngrok http 8000"
   },
   "keywords": [],
   "author": "",
