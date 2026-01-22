@@ -1,16 +1,15 @@
+/**
+ * File-based FIFO Cache
+ *
+ * A simple first-in-first-out cache that stores JSON responses
+ * to the filesystem. Uses SHA1 hashing for cache keys and maintains
+ * an ordered index for eviction.
+ */
+
 import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
-
-const DEBUG = String(process.env.DEBUG ?? "").toLowerCase() === "1" ||
-  String(process.env.DEBUG ?? "").toLowerCase() === "true";
-
-function debug(...args: any[]) {
-  if (DEBUG) {
-    // eslint-disable-next-line no-console
-    console.log("[debug]", ...args);
-  }
-}
+import { debug } from "./utils/logger.js";
 
 export class FileFifoCache {
   private readonly cacheDir: string;
@@ -23,7 +22,7 @@ export class FileFifoCache {
     this.capacity = capacity;
   }
 
-  private ensureDir() {
+  private ensureDir(): void {
     if (!fs.existsSync(this.cacheDir)) {
       fs.mkdirSync(this.cacheDir, { recursive: true });
     }
@@ -98,8 +97,7 @@ export class FileFifoCache {
     }
   }
 
-  get directory() {
+  get directory(): string {
     return this.cacheDir;
   }
 }
-
